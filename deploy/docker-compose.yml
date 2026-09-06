@@ -3,8 +3,6 @@ services:
     image: timescale/timescaledb:latest-pg16
     container_name: pht-postgres
     restart: unless-stopped
-    env_file:
-      - ../.env
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -24,8 +22,6 @@ services:
       context: ../server
     container_name: pht-api
     restart: unless-stopped
-    env_file:
-      - ../.env
     environment:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432

@@ -47,7 +47,58 @@ Phase 1 legt diese Tabellen an:
 
 Die generische Huellentabelle `measurements` bleibt absichtlich erweiterbar fuer weitere Geraettypen. Die Blutdruck-Details liegen in `blood_pressure_readings`.
 
-## Lokales Setup
+## Deployment via Portainer (empfohlener Weg)
+
+Der Stack ist Portainer-kompatibel: Standard-Compose-Syntax, benannte Volumes, sinnvolle Container-Namen. `docker-compose.yml` enthaelt bewusst **keine** `env_file`-Referenz mehr, damit er sich direkt ueber Portainers Stack-Environment-Variablen fuellen laesst, egal ob per Web-Editor oder Git-Repository-Deploy.
+
+1. **Stack anlegen**: Portainer → *Stacks* → *Add stack*, Name z.B. `pht`.
+2. **Build-Methode** waehlen:
+   - **Repository** (empfohlen, da der `api`-Service ein Image aus [server/Dockerfile](/C:/Users/LeonB/Projects/PHT/server/Dockerfile) mit `context: ../server` baut): URL `https://github.com/Loxitation/PHT.git`, Compose-Pfad `deploy/docker-compose.yml`, Branch `main`. Da das Repo privat ist, unter *Authentication* Username + GitHub Personal Access Token hinterlegen. Portainer klont dabei das ganze Repo, wodurch der relative Build-Context `../server` aufgeloest werden kann.
+   - **Web editor**: Funktioniert nur, wenn du vorher ein fertiges `api`-Image in eine Registry gepusht hast und `build:` im Compose durch `image: <registry>/pht-api:<tag>` ersetzt, da beim Web-Editor kein Source-Tree fuer den Build vorhanden ist. Fuer Phase 1 daher **Repository** bevorzugen.
+3. **Environment variables** im Stack-Formular (Portainer legt daraus intern eine `.env`-aequivalente Konfiguration an) eintragen, siehe [.env.example](/C:/Users/LeonB/Projects/PHT/.env.example):
+
+   | Variable | Beispiel |
+   |---|---|
+   | `POSTGRES_DB` | `pht` |
+   | `POSTGRES_USER` | `pht` |
+   | `POSTGRES_PASSWORD` | *sicheres Passwort* |
+   | `POSTGRES_PORT` | `5432` |
+   | `API_PORT` | `8000` |
+   | `JWT_SECRET` | *langer Zufallswert* |
+   | `JWT_ALGORITHM` | `HS256` |
+   | `ACCESS_TOKEN_EXPIRE_MINUTES` | `15` |
+   | `REFRESH_TOKEN_EXPIRE_DAYS` | `30` |
+   | `LOGIN_RATE_LIMIT` | `5/minute` |
+   | `GOTIFY_ENABLED` | `false` |
+   | `GOTIFY_URL` | *leer, kommt spaeter* |
+   | `GOTIFY_TOKEN` | *leer, kommt spaeter* |
+   | `LOG_LEVEL` | `INFO` |
+
+4. **Deploy the stack** klicken. Portainer baut das `api`-Image aus [server/Dockerfile](/C:/Users/LeonB/Projects/PHT/server/Dockerfile) und startet `pht-postgres` + `pht-api`.
+5. **Migration ausfuehren** ganz ohne SSH/CLI ueber die Portainer-GUI:
+   - *Containers* → `pht-api` → *Console* → *Connect* (Shell `/bin/sh` oder `/bin/bash`).
+   - Im geoeffneten Browser-Terminal:
+     ```sh
+     python -m alembic upgrade head
+     ```
+6. **Ersten Admin-User + Beurer-BM48-Device anlegen**, im selben Console-Fenster:
+   ```sh
+   python -m app.bootstrap --username admin --password "EIN-SICHERES-PASSWORT" --device-name "Beurer BM48" --device-type beurer_bm48
+   ```
+   Ausgabe merken (der `api_key` wird nur einmal angezeigt):
+   ```json
+   {"username":"admin","device_id":"...","api_key":"..."}
+   ```
+7. **Health-Check** von einem beliebigen LAN-Rechner (Reverse Proxy folgt spaeter):
+   ```powershell
+   curl.exe http://<server-ip>:8000/healthz
+   ```
+
+Die folgenden Beispiele nutzen `http://<server-ip>:8000`; ersetze das bei Bedarf durch `localhost`, falls du direkt auf dem Server testest.
+
+## Alternatives lokales Setup (Docker Compose CLI)
+
+Falls du statt Portainer die Compose-CLI direkt nutzen willst:
 
 1. Beispiel-Umgebung kopieren:
 
@@ -55,12 +106,12 @@ Die generische Huellentabelle `measurements` bleibt absichtlich erweiterbar fuer
    Copy-Item .env.example .env
    ```
 
-2. In [.env.example](/C:/Users/LeonB/Projects/PHT/.env.example) die Secrets anpassen, vor allem `POSTGRES_PASSWORD` und `JWT_SECRET`.
+2. In der neuen `.env` die Secrets anpassen, vor allem `POSTGRES_PASSWORD` und `JWT_SECRET`.
 
-3. Stack starten:
+3. Stack mit `--env-file` starten (die Compose-Datei liest Variablen jetzt nur noch aus der Shell-Umgebung bzw. `--env-file`, nicht mehr automatisch aus `../.env`):
 
    ```powershell
-   docker compose -f deploy/docker-compose.yml up -d --build
+   docker compose --env-file .env -f deploy/docker-compose.yml up -d --build
    ```
 
 4. Migration ausfuehren:
@@ -85,7 +136,7 @@ Die generische Huellentabelle `measurements` bleibt absichtlich erweiterbar fuer
    {"username":"admin","device_id":"...","api_key":"..."}
    ```
 
-6. Health-Check pruefen:
+6. Health-Check pruefen (vom Server selbst mit `localhost`, aus dem LAN mit der Server-IP):
 
    ```powershell
    curl.exe http://localhost:8000/healthz
@@ -97,7 +148,7 @@ Die generische Huellentabelle `measurements` bleibt absichtlich erweiterbar fuer
 - `POST /api/v1/auth/refresh`
 - `GET /api/v1/auth/me`
 
-Login-Beispiel:
+Login-Beispiel (`localhost` durch die Server-IP ersetzen, falls von einem anderen LAN-Rechner getestet wird):
 
 ```powershell
 curl.exe -X POST http://localhost:8000/api/v1/auth/login `
