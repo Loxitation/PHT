@@ -7,7 +7,10 @@ pydantic==2.10.4
 pydantic-settings==2.7.1
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
-bcrypt==4.2.1
+# Pinned below 4.1: passlib 1.7.4's bcrypt backend probes bcrypt.__about__.__version__,
+# which was removed in bcrypt>=4.1, causing a harmless but noisy "error reading bcrypt
+# version" warning on every hash/verify call.
+bcrypt==4.0.1
 python-multipart==0.0.20
 structlog==24.4.0
 slowapi==0.1.9
