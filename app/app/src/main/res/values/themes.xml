@@ -1,0 +1,5 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Base application theme: Compose owns all UI theming (see ui/theme/Theme.kt);
+         this XML theme only needs to set the window background before Compose attaches. -->
+    <style name="Theme.PHT" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

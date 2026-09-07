@@ -6,3 +6,14 @@ __pycache__/
 .venv/
 node_modules/
 dist/
+
+# Android (app/)
+app/local.properties
+app/**/build/
+app/.gradle/
+app/.kotlin/
+app/*.iml
+app/**/*.iml
+app/.idea/
+app/captures/
+app/**/.cxx/

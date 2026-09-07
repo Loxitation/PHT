@@ -1,8 +1,8 @@
 # PHT - Private Health Tracker
 
-Lokale Health-Tracking-Loesung mit Android-App, selfhosted FastAPI-Backend und spaeterem Vue-Dashboard. Phase 1 liefert das erste Server-Grundgeruest fuer Blutdruckmessungen vom Beurer BM48.
+Lokale Health-Tracking-Loesung mit Android-App, selfhosted FastAPI-Backend und spaeterem Vue-Dashboard. Phase 1 liefert das Server-Grundgeruest fuer Blutdruckmessungen vom Beurer BM48, Phase 2 die Android-App, die diese Messungen per BLE ausliest und synchronisiert.
 
-## Phase-1-Stand
+## Phase-1-Stand (Server)
 
 - [server/](/C:/Users/LeonB/Projects/PHT/server) mit FastAPI, SQLAlchemy, Alembic, JWT-Auth, API-Key-Auth und structlog
 - [deploy/docker-compose.yml](/C:/Users/LeonB/Projects/PHT/deploy/docker-compose.yml) fuer TimescaleDB/PostgreSQL 16 und API
@@ -10,18 +10,39 @@ Lokale Health-Tracking-Loesung mit Android-App, selfhosted FastAPI-Backend und s
 - Health-Check und JWT-geschuetzte Messwertliste
 - Bootstrap-CLI fuer ersten User und erstes Geraet
 
+## Phase-2-Stand (Android-App)
+
+- [app/](/C:/Users/LeonB/Projects/PHT/app) : natives Kotlin-Projekt (Gradle, kein Google-Play-Services-Zwang, GrapheneOS-kompatibel)
+- BLE-Layer mit `DeviceProfile`-Abstraktion; erstes Profil `BeurerBm48Profile` implementiert den Standard-Bluetooth-SIG-Blutdruck-Service (`0x1810`/`0x2A35`, Indications)
+- `BloodPressureMeasurementParser` dekodiert Flags/SFLOAT/Timestamp/Status exakt nach Bluetooth-SIG-Spezifikation (Unit-Test verifiziert gegen den echten BM48-Beispieldatensatz aus Phase 1)
+- Room-DB als lokale Offline-Queue (`blood_pressure_measurements`, Sync-Status PENDING/SYNCED/FAILED)
+- WorkManager-Sync (`SyncWorker`/`SyncScheduler`) mit Exponential-Backoff: sofortiger Versuch nach neuer Messung + periodischer Sicherheitsnetz-Lauf alle 30 Minuten
+- Verschluesselte lokale Ablage (EncryptedSharedPreferences/Keystore) fuer Server-URL, API-Key und Geraete-ID
+- Jetpack-Compose-UI: Messwerte-Liste, Geraete-Scan/Verbindung, Einstellungen
+
 Noch offen fuer spaetere Phasen:
 
-- Android-App in [app/](/C:/Users/LeonB/Projects/PHT/app)
 - Vue-3-Dashboard in [dashboard/](/C:/Users/LeonB/Projects/PHT/dashboard)
 - PDF/CSV/JSON-Export-Endpunkte
 - Gotify-Benachrichtigungen aktiv verdrahten
+- Health-Connect-Integration, weitere Geraetetypen (Waage, Wearable, manuelle Eingabe)
 
 ## Projektstruktur
 
 ```text
 PHT/
-├── app/
+├── app/                        # Android-App (Kotlin, Gradle)
+│   ├── app/
+│   │   ├── src/main/kotlin/de/loxitation/pht/
+│   │   │   ├── ble/            # DeviceProfile-Abstraktion, BM48-Parser, GATT-Verbindung
+│   │   │   ├── data/local/     # Room-DB (Offline-Queue)
+│   │   │   ├── data/remote/    # Retrofit/kotlinx.serialization
+│   │   │   ├── data/repository/# Measurement-/Settings-Repository
+│   │   │   ├── sync/           # WorkManager Sync-Worker/-Scheduler
+│   │   │   └── ui/             # Jetpack Compose Screens/ViewModels
+│   │   └── src/test/kotlin/    # Unit-Tests (u.a. BM48-Parser-Regressionstest)
+│   ├── gradlew / gradlew.bat
+│   └── settings.gradle.kts
 ├── dashboard/
 ├── deploy/
 │   └── docker-compose.yml
@@ -193,9 +214,67 @@ $TOKEN = "<access-token-aus-login>"
 curl.exe http://localhost:8000/api/v1/measurements -H "Authorization: Bearer $TOKEN"
 ```
 
-## Wichtige Dateien
+## Wichtige Dateien (Server)
 
 - [server/app/main.py](/C:/Users/LeonB/Projects/PHT/server/app/main.py)
 - [server/app/api/v1/auth.py](/C:/Users/LeonB/Projects/PHT/server/app/api/v1/auth.py)
 - [server/app/api/v1/measurements.py](/C:/Users/LeonB/Projects/PHT/server/app/api/v1/measurements.py)
 - [server/alembic/versions/20260906_01_initial_schema.py](/C:/Users/LeonB/Projects/PHT/server/alembic/versions/20260906_01_initial_schema.py)
+
+## Android-App bauen und testen
+
+Voraussetzungen: JDK 17, Android SDK (mind. Platform 34 + Build-Tools 34.0.0). Android Studio (aktuelle Version) ist der einfachste Weg, beides zu bekommen; alternativ reichen JDK 17 + `sdkmanager` aus den Android-Commandline-Tools.
+
+1. `app/local.properties` anlegen (wird nicht committet) mit dem Pfad zu deinem Android SDK:
+
+   ```properties
+   sdk.dir=C:\\Pfad\\zum\\Android\\Sdk
+   ```
+
+2. Debug-APK bauen:
+
+   ```powershell
+   cd app
+   .\gradlew.bat assembleDebug
+   ```
+
+   Das APK liegt danach unter `app/app/build/outputs/apk/debug/app-debug.apk`.
+
+3. Unit-Tests ausfuehren (u.a. Regressionstest des BLE-Parsers gegen den echten BM48-Beispieldatensatz):
+
+   ```powershell
+   .\gradlew.bat testDebugUnitTest
+   ```
+
+4. Lint pruefen:
+
+   ```powershell
+   .\gradlew.bat lintDebug
+   ```
+
+5. App auf einem Geraet/Emulator installieren (USB-Debugging bzw. `adb` im PATH):
+
+   ```powershell
+   .\gradlew.bat installDebug
+   ```
+
+### App mit dem Phase-1-Server verbinden
+
+1. Auf dem Server per Bootstrap-Kommando (siehe oben) einen Admin-User + ein Geraet mit API-Key anlegen, falls noch nicht geschehen.
+2. In der App unter **Einstellungen**: Server-URL (z.B. `https://pht.loxitation.de` oder `http://pht.leda:8000` im LAN), den API-Key und die Geraete-ID aus Schritt 1 eintragen und speichern.
+3. Unter **Geraet**: Scan starten (Bluetooth-Berechtigungen bei Bedarf erteilen), Beurer BM48 einschalten/messen. Die App verbindet sich automatisch, empfaengt die Messung per Indication, speichert sie lokal in der Room-Offline-Queue und stoesst sofort einen Sync-Versuch an.
+4. Unter **Messwerte** erscheint die Messung mit Sync-Status (wartend/synchronisiert/fehlgeschlagen). Bei Netzwerkfehlern retried WorkManager automatisch mit exponentiellem Backoff, zusaetzlich laeuft alle 30 Minuten ein periodischer Sicherheitsnetz-Sync.
+
+### GrapheneOS-Hinweise
+
+- Die App fragt zur Laufzeit nur Bluetooth-Berechtigungen an (`BLUETOOTH_SCAN`/`BLUETOOTH_CONNECT` ab Android 12, sonst `BLUETOOTH`/`ACCESS_FINE_LOCATION`); `BLUETOOTH_SCAN` ist mit `neverForLocation` deklariert, da nur nach der eigenen Service-UUID gescannt wird, nie nach Standortdaten.
+- Keine Google-Play-Services-Abhaengigkeit; Internetzugriff kann in GrapheneOS pro App wie gewohnt eingeschraenkt werden (Netzwerkzugriff wird nur fuer den Sync zum eigenen Server benoetigt).
+- `android:usesCleartextTraffic="true"` erlaubt zusaetzlich `http://` im LAN (z.B. `*.leda`); extern sollte ausschliesslich `https://*.loxitation.de` verwendet werden.
+
+## Wichtige Dateien (Android-App)
+
+- [app/app/src/main/kotlin/de/loxitation/pht/ble/BloodPressureMeasurementParser.kt](/C:/Users/LeonB/Projects/PHT/app/app/src/main/kotlin/de/loxitation/pht/ble/BloodPressureMeasurementParser.kt)
+- [app/app/src/main/kotlin/de/loxitation/pht/ble/BleConnectionManager.kt](/C:/Users/LeonB/Projects/PHT/app/app/src/main/kotlin/de/loxitation/pht/ble/BleConnectionManager.kt)
+- [app/app/src/main/kotlin/de/loxitation/pht/sync/SyncWorker.kt](/C:/Users/LeonB/Projects/PHT/app/app/src/main/kotlin/de/loxitation/pht/sync/SyncWorker.kt)
+- [app/app/src/main/kotlin/de/loxitation/pht/data/repository/MeasurementRepository.kt](/C:/Users/LeonB/Projects/PHT/app/app/src/main/kotlin/de/loxitation/pht/data/repository/MeasurementRepository.kt)
+- [app/app/src/test/kotlin/de/loxitation/pht/ble/BloodPressureMeasurementParserTest.kt](/C:/Users/LeonB/Projects/PHT/app/app/src/test/kotlin/de/loxitation/pht/ble/BloodPressureMeasurementParserTest.kt)

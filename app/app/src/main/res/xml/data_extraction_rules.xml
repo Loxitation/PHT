@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- android:allowBackup is already "false" (see AndroidManifest.xml), which disables cloud
+     backup entirely. This file additionally and explicitly excludes all app data from
+     device-to-device transfer, since the local database and encrypted settings contain
+     sensitive health data and a revocable API key. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+    </device-transfer>
+</data-extraction-rules>
