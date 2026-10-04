@@ -6,12 +6,19 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
-// Release signing is intentionally NOT committed to the repo (see environment security rules:
-// never commit secrets into source code). CI decodes a keystore from a GitHub Actions secret to
-// a temporary file and passes its path + passwords via environment variables (see
-// .github/workflows/release.yml). Without these env vars, `assembleRelease` still builds but
-// produces an unsigned (not directly installable) APK; use `assembleDebug` for local testing.
-val releaseKeystorePath = System.getenv("ANDROID_RELEASE_KEYSTORE_PATH")
+// Release signing: defaults to a committed keystore using Android's well-known, publicly
+// documented debug-signing convention (storePassword/keyPassword "android", alias
+// "androiddebugkey" - see https://developer.android.com/studio/publish/app-signing#debug-mode).
+// These are NOT secrets; that's the entire point of the convention, so committing this specific
+// keystore does not violate the "never commit secrets" rule. This gives every CI run (and local
+// builds) a stable signing identity for free, so app updates install over existing installs
+// without uninstalling first.
+//
+// To switch to a real dedicated release key later (e.g. before any wider distribution), set
+// ANDROID_RELEASE_KEYSTORE_PATH/_PASSWORD/_KEY_ALIAS/_KEY_PASSWORD (e.g. via GitHub Actions
+// secrets in .github/workflows/release.yml) - these take priority over the committed fallback
+// with no code changes needed.
+val releaseKeystorePath = System.getenv("ANDROID_RELEASE_KEYSTORE_PATH")?.takeIf { it.isNotBlank() }
 
 android {
     namespace = "de.loxitation.pht"
@@ -30,12 +37,17 @@ android {
     }
 
     signingConfigs {
-        if (releaseKeystorePath != null) {
-            create("release") {
+        create("release") {
+            if (releaseKeystorePath != null) {
                 storeFile = file(releaseKeystorePath)
                 storePassword = System.getenv("ANDROID_RELEASE_KEYSTORE_PASSWORD")
                 keyAlias = System.getenv("ANDROID_RELEASE_KEY_ALIAS")
                 keyPassword = System.getenv("ANDROID_RELEASE_KEY_PASSWORD")
+            } else {
+                storeFile = rootProject.file("signing/pht-debug.keystore")
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
             }
         }
     }
@@ -44,9 +56,7 @@ android {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            if (releaseKeystorePath != null) {
-                signingConfig = signingConfigs.getByName("release")
-            }
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 

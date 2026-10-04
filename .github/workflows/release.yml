@@ -27,9 +27,18 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Decode release keystore
+      - name: Determine signing configuration
+        id: signing
         run: |
-          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/pht-release.keystore"
+          if [ -n "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/pht-release.keystore"
+            echo "keystore_path=$RUNNER_TEMP/pht-release.keystore" >> "$GITHUB_OUTPUT"
+            echo "Using dedicated release keystore from the ANDROID_KEYSTORE_BASE64 secret."
+          else
+            echo "keystore_path=" >> "$GITHUB_OUTPUT"
+            echo "No ANDROID_KEYSTORE_BASE64 secret set; falling back to the committed" \
+                 "Android debug-convention keystore (app/signing/pht-debug.keystore)."
+          fi
 
       - name: Grant execute permission for gradlew
         working-directory: app
@@ -38,7 +47,7 @@ jobs:
       - name: Assemble signed release APK
         working-directory: app
         env:
-          ANDROID_RELEASE_KEYSTORE_PATH: ${{ runner.temp }}/pht-release.keystore
+          ANDROID_RELEASE_KEYSTORE_PATH: ${{ steps.signing.outputs.keystore_path }}
           ANDROID_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}

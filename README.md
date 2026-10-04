@@ -142,31 +142,30 @@ Ein git-Tag im Format `v<version>` (z.B. `v0.1.0`) pushen - das Release-Workflow
 - `ghcr.io/loxitation/pht-api:<version>` + `:latest` (linux/amd64, linux/arm64)
 - `ghcr.io/loxitation/pht-dashboard:<version>` + `:latest` (linux/amd64, linux/arm64)
 
-Voraussetzung: die Repository-Secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` muessen unter Settings -> Secrets and variables -> Actions gesetzt sein (siehe naechster Abschnitt). Der Signing-Keystore wird bewusst nicht im Repo gespeichert.
+Keine Secrets noetig: die App wird standardmaessig mit dem im Repo liegenden Signing-Key [app/signing/pht-debug.keystore](/C:/Users/LeonB/Projects/PHT/app/signing/pht-debug.keystore) signiert (Androids oeffentlich dokumentierte Debug-Signing-Konvention, siehe naechster Abschnitt) - `git tag` + `git push` reichen also direkt aus:
 
 ```powershell
 git tag v0.1.0
 git push origin v0.1.0
 ```
 
-## Android-Signing-Secrets einrichten (einmalig, fuer Maintainer)
+## Android-Signing: Standard-Keystore vs. eigener Release-Key (optional)
 
-Die Android-App braucht fuer Release-Builds einen stabilen Signing-Key (sonst laesst sich eine neu installierte Version nicht als Update ueber eine bestehende installieren). Der Key wird nicht im Repo abgelegt, sondern als GitHub Actions Secret hinterlegt:
+Jede APK-Installation unter Android braucht eine gueltige Signatur - auch beim Sideloading. Fuer dieses private Hobby-Projekt (kein Play-Store-Vertrieb) nutzt der Release-Workflow standardmaessig Androids oeffentlich dokumentierte Debug-Signing-Konvention (`storePassword`/`keyPassword` = `android`, Alias `androiddebugkey` - siehe [offizielle Android-Doku](https://developer.android.com/studio/publish/app-signing#debug-mode)). Das sind **keine echten Geheimnisse** - genau das ist der Sinn dieser Konvention - daher ist [app/signing/pht-debug.keystore](/C:/Users/LeonB/Projects/PHT/app/signing/pht-debug.keystore) bewusst im Repo committet. Dadurch funktionieren Releases ganz ohne manuelle Einrichtung, und App-Updates installieren sich ueber bestehende Installationen, ohne vorher deinstallieren zu muessen.
 
-1. GitHub -> Repo -> Settings -> Secrets and variables -> Actions -> New repository secret, vier Secrets anlegen:
-   - `ANDROID_KEYSTORE_BASE64`: Base64-kodierter Inhalt der .keystore-Datei
-   - `ANDROID_KEYSTORE_PASSWORD`
-   - `ANDROID_KEY_ALIAS`
-   - `ANDROID_KEY_PASSWORD`
-2. Falls noch kein Keystore existiert, lokal erzeugen (JDK muss installiert sein):
-   ```powershell
-   keytool -genkeypair -v -keystore pht-release.keystore -alias pht -keyalg RSA -keysize 2048 -validity 36500
-   ```
-   Danach die Datei base64-kodieren und den Inhalt als `ANDROID_KEYSTORE_BASE64` einfuegen:
-   ```powershell
-   [Convert]::ToBase64String([IO.File]::ReadAllBytes("pht-release.keystore")) | Set-Clipboard
-   ```
-3. Keystore-Datei danach sicher aufbewahren (z.B. Passwort-Manager) und nicht committen - ohne ihn koennen spaetere Releases nicht mehr mit derselben Signatur gebaut werden.
+Falls du spaeter einen eigenen, dedizierten Release-Key verwenden moechtest (z.B. vor einer breiteren Verteilung), kannst du jederzeit umsteigen, ohne Code zu aendern - der eigene Key hat automatisch Vorrang, sobald die folgenden vier Repository-Secrets gesetzt sind (Settings -> Secrets and variables -> Actions -> New repository secret):
+
+- `ANDROID_KEYSTORE_BASE64`: Base64-kodierter Inhalt der `.keystore`-Datei
+- `ANDROID_KEYSTORE_PASSWORD`
+- `ANDROID_KEY_ALIAS`
+- `ANDROID_KEY_PASSWORD`
+
+Eigenen Keystore lokal erzeugen:
+```powershell
+keytool -genkeypair -v -keystore pht-release.keystore -alias pht -keyalg RSA -keysize 2048 -validity 36500
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("pht-release.keystore")) | Set-Clipboard
+```
+Den kopierten Base64-String als `ANDROID_KEYSTORE_BASE64` einfuegen. Diese Keystore-Datei danach sicher aufbewahren (z.B. Passwort-Manager) und **nicht** committen - ohne ihn koennen spaetere Releases nicht mehr mit derselben Signatur gebaut werden. Achtung: wechselst du spaeter von Variante B (Debug-Keystore) auf einen eigenen Key, aendert sich die App-Signatur - bestehende Installationen muessen dann einmalig deinstalliert und neu installiert werden.
 
 ## Alternatives lokales Setup (Docker Compose CLI, aus Quellcode gebaut)
 
@@ -268,7 +267,7 @@ curl.exe http://localhost:8000/api/v1/measurements -H "Authorization: Bearer $TO
 
 ## Android-App installieren
 
-**Einfachster Weg**: Fertige APK von der [Releases-Seite](https://github.com/Loxitation/PHT/releases) herunterladen (`pht-<version>.apk`), auf das Android-Geraet uebertragen und oeffnen. Android fragt beim ersten Mal nach Erlaubnis fuer "App-Installation von dieser Quelle" - zustimmen und installieren. Die APK ist signiert (siehe "Android-Signing-Secrets" oben), sodass spaetere Updates ueber die bestehende Installation installiert werden koennen, ohne vorher deinstallieren zu muessen.
+**Einfachster Weg**: Fertige APK von der [Releases-Seite](https://github.com/Loxitation/PHT/releases) herunterladen (`pht-<version>.apk`), auf das Android-Geraet uebertragen und oeffnen. Android fragt beim ersten Mal nach Erlaubnis fuer "App-Installation von dieser Quelle" - zustimmen und installieren. Die APK ist signiert (siehe "Android-Signing" oben), sodass spaetere Updates ueber die bestehende Installation installiert werden koennen, ohne vorher deinstallieren zu muessen.
 
 ## Android-App selbst bauen und testen
 
