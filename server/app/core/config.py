@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     # Rate limiting on login endpoint
     login_rate_limit: str = "5/minute"
 
+    # CORS: comma-separated list of allowed browser origins for the dashboard SPA, e.g.
+    # "https://pht.loxitation.de,http://pht.leda:8080". Empty means no cross-origin access.
+    cors_allowed_origins: str = ""
+
     # Gotify notifications (optional, configured later)
     gotify_url: str = ""
     gotify_token: str = ""
@@ -31,6 +35,10 @@ class Settings(BaseSettings):
     # App metadata
     app_name: str = "PHT Server"
     log_level: str = "INFO"
+
+    @property
+    def cors_allowed_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_allowed_origins.split(",") if origin.strip()]
 
     @property
     def database_url(self) -> str:

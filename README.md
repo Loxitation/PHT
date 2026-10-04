@@ -1,6 +1,6 @@
 # PHT - Private Health Tracker
 
-Lokale Health-Tracking-Loesung mit Android-App, selfhosted FastAPI-Backend und spaeterem Vue-Dashboard. Phase 1 liefert das Server-Grundgeruest fuer Blutdruckmessungen vom Beurer BM48, Phase 2 die Android-App, die diese Messungen per BLE ausliest und synchronisiert.
+Lokale Health-Tracking-Loesung mit Android-App, selfhosted FastAPI-Backend und Vue-3-Dashboard. Phase 1 liefert das Server-Grundgeruest fuer Blutdruckmessungen vom Beurer BM48, Phase 2 die Android-App, die diese Messungen per BLE ausliest und synchronisiert, Phase 3 das Web-Dashboard zur Visualisierung.
 
 ## Phase-1-Stand (Server)
 
@@ -20,12 +20,21 @@ Lokale Health-Tracking-Loesung mit Android-App, selfhosted FastAPI-Backend und s
 - Verschluesselte lokale Ablage (EncryptedSharedPreferences/Keystore) fuer Server-URL, API-Key und Geraete-ID
 - Jetpack-Compose-UI: Messwerte-Liste, Geraete-Scan/Verbindung, Einstellungen
 
+## Phase-3-Stand (Web-Dashboard)
+
+- [dashboard/](/C:/Users/LeonB/Projects/PHT/dashboard): Vue 3 + Vite + TypeScript SPA
+- JWT-Login (Pinia Auth-Store) mit Access-/Refresh-Token-Rotation inkl. automatischem Token-Refresh bei 401 (Axios-Interceptor)
+- Blutdruck-Verlauf: Chart.js-Liniendiagramm (systolisch/diastolisch/puls) + tabellarische Ansicht, Daten ueber `GET /api/v1/measurements`
+- Route-Guards: ungeschuetzte Seiten (ausser Login) erfordern ein gueltiges Access-Token
+- Eigener Dashboard-Container: Multi-Stage-Dockerfile (Node-Build → nginx), `VITE_API_BASE_URL` als Build-Arg konfigurierbar
+- Server-seitig ergaenzt: CORS-Middleware (`CORS_ALLOWED_ORIGINS`) sowie `GET /api/v1/measurements` liefert jetzt systolic/diastolic/pulse direkt mit (vorher nur im `raw_payload` versteckt)
+
 Noch offen fuer spaetere Phasen:
 
-- Vue-3-Dashboard in [dashboard/](/C:/Users/LeonB/Projects/PHT/dashboard)
 - PDF/CSV/JSON-Export-Endpunkte
 - Gotify-Benachrichtigungen aktiv verdrahten
 - Health-Connect-Integration, weitere Geraetetypen (Waage, Wearable, manuelle Eingabe)
+- Dashboard: Geraete-/API-Key-Verwaltung, Benutzerverwaltung, Grenzwert-Konfiguration
 
 ## Projektstruktur
 
@@ -43,7 +52,15 @@ PHT/
 │   │   └── src/test/kotlin/    # Unit-Tests (u.a. BM48-Parser-Regressionstest)
 │   ├── gradlew / gradlew.bat
 │   └── settings.gradle.kts
-├── dashboard/
+├── dashboard/                   # Vue 3 + Vite + TypeScript SPA
+│   ├── src/
+│   │   ├── api/                 # Axios-Client, Auth-/Measurement-Requests
+│   │   ├── stores/               # Pinia Auth-Store
+│   │   ├── router/               # Vue Router + Auth-Guards
+│   │   ├── views/                 # Login-/Measurements-View
+│   │   └── types/                 # Shared TS-Typen (spiegeln Server-Schemas)
+│   ├── Dockerfile               # Multi-Stage: Node-Build + nginx
+│   └── nginx.conf
 ├── deploy/
 │   └── docker-compose.yml
 ├── docs/
@@ -278,3 +295,64 @@ Voraussetzungen: JDK 17, Android SDK (mind. Platform 34 + Build-Tools 34.0.0). A
 - [app/app/src/main/kotlin/de/loxitation/pht/sync/SyncWorker.kt](/C:/Users/LeonB/Projects/PHT/app/app/src/main/kotlin/de/loxitation/pht/sync/SyncWorker.kt)
 - [app/app/src/main/kotlin/de/loxitation/pht/data/repository/MeasurementRepository.kt](/C:/Users/LeonB/Projects/PHT/app/app/src/main/kotlin/de/loxitation/pht/data/repository/MeasurementRepository.kt)
 - [app/app/src/test/kotlin/de/loxitation/pht/ble/BloodPressureMeasurementParserTest.kt](/C:/Users/LeonB/Projects/PHT/app/app/src/test/kotlin/de/loxitation/pht/ble/BloodPressureMeasurementParserTest.kt)
+
+## Dashboard lokal entwickeln
+
+1. Abhaengigkeiten installieren:
+
+   ```powershell
+   cd dashboard
+   npm install
+   ```
+
+2. `.env.local` anlegen (wird nicht committet), damit das Dashboard den lokal laufenden Server findet:
+
+   ```properties
+   VITE_API_BASE_URL=http://localhost:8000
+   ```
+
+3. Dev-Server starten:
+
+   ```powershell
+   npm run dev
+   ```
+
+   Das Dashboard laeuft danach unter `http://localhost:5173`. Damit der Server CORS-Requests von dort akzeptiert, in der Server-`.env` `CORS_ALLOWED_ORIGINS=http://localhost:5173` setzen (bzw. zusaetzlich zur Produktions-Domain ergaenzen).
+
+4. Production-Build + Typecheck:
+
+   ```powershell
+   npm run build
+   ```
+
+## Dashboard per Docker/Portainer betreiben
+
+Der `dashboard`-Service in [deploy/docker-compose.yml](/C:/Users/LeonB/Projects/PHT/deploy/docker-compose.yml) baut ein Multi-Stage-Image (Node-Build → nginx) und serviert die SPA auf Port `DASHBOARD_PORT` (Standard `8080`).
+
+Wichtig: `DASHBOARD_API_BASE_URL` wird **zur Build-Zeit** in das JS-Bundle eingebacken (Vite-Umgebungsvariablen sind kein Laufzeit-Konfig) und muss eine URL sein, die der **Browser des Nutzers** erreichen kann (z.B. `https://pht.loxitation.de` oder `http://pht.leda:8000`) - nicht der interne Docker-Service-Name `api`.
+
+1. In der Root-`.env` setzen (siehe [.env.example](/C:/Users/LeonB/Projects/PHT/.env.example)):
+
+   ```properties
+   DASHBOARD_PORT=8080
+   DASHBOARD_API_BASE_URL=https://pht.loxitation.de
+   CORS_ALLOWED_ORIGINS=https://pht.loxitation.de,http://pht.leda:8080
+   ```
+
+2. Stack (neu) bauen und starten:
+
+   ```powershell
+   docker compose --env-file .env -f deploy/docker-compose.yml up -d --build
+   ```
+
+   Oder via Portainer: Stack mit Repository-Methode wie in Phase 1 beschrieben, Environment-Variablen entsprechend ergaenzen.
+
+3. Dashboard unter `http://<server-ip>:8080` (bzw. ueber den Nginx Proxy Manager) aufrufen, mit dem in Phase 1 angelegten Admin-User einloggen.
+
+## Wichtige Dateien (Dashboard)
+
+- [dashboard/src/stores/auth.ts](/C:/Users/LeonB/Projects/PHT/dashboard/src/stores/auth.ts)
+- [dashboard/src/api/client.ts](/C:/Users/LeonB/Projects/PHT/dashboard/src/api/client.ts)
+- [dashboard/src/views/MeasurementsView.vue](/C:/Users/LeonB/Projects/PHT/dashboard/src/views/MeasurementsView.vue)
+- [dashboard/src/router/index.ts](/C:/Users/LeonB/Projects/PHT/dashboard/src/router/index.ts)
+- [dashboard/Dockerfile](/C:/Users/LeonB/Projects/PHT/dashboard/Dockerfile)

@@ -11,7 +11,7 @@ from app.core.logging import get_logger
 from app.models.device import Device
 from app.models.measurement import BloodPressureReading, Measurement
 from app.models.user import User
-from app.schemas.measurement import BloodPressureMeasurementIn, BloodPressureMeasurementOut, MeasurementOut
+from app.schemas.measurement import BloodPressureMeasurementIn, BloodPressureMeasurementOut
 
 router = APIRouter(prefix="/api/v1/measurements", tags=["measurements"])
 logger = get_logger(__name__)
@@ -131,7 +131,7 @@ def create_blood_pressure_measurement(
     )
 
 
-@router.get("", response_model=list[MeasurementOut])
+@router.get("", response_model=list[BloodPressureMeasurementOut])
 def list_measurements(
     measurement_type: str | None = None,
     limit: int = 100,
@@ -143,4 +143,26 @@ def list_measurements(
     if measurement_type:
         query = query.filter(Measurement.measurement_type == measurement_type)
     query = query.order_by(Measurement.recorded_at.desc()).offset(offset).limit(min(limit, 500))
-    return query.all()
+    measurements = query.all()
+
+    results = []
+    for measurement in measurements:
+        reading = measurement.blood_pressure_reading
+        results.append(
+            BloodPressureMeasurementOut(
+                id=measurement.id,
+                measurement_type=measurement.measurement_type,
+                measurement_uuid=measurement.measurement_uuid,
+                recorded_at=measurement.recorded_at,
+                created_at=measurement.created_at,
+                device_id=measurement.device_id,
+                raw_payload=measurement.raw_payload,
+                systolic=reading.systolic if reading else None,
+                diastolic=reading.diastolic if reading else None,
+                pulse=reading.pulse if reading else None,
+                body_position=reading.body_position if reading else None,
+                measurement_location=reading.measurement_location if reading else None,
+                measurement_status_raw=reading.measurement_status_raw if reading else None,
+            )
+        )
+    return results
