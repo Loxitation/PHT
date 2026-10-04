@@ -6,6 +6,13 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
+// Release signing is intentionally NOT committed to the repo (see environment security rules:
+// never commit secrets into source code). CI decodes a keystore from a GitHub Actions secret to
+// a temporary file and passes its path + passwords via environment variables (see
+// .github/workflows/release.yml). Without these env vars, `assembleRelease` still builds but
+// produces an unsigned (not directly installable) APK; use `assembleDebug` for local testing.
+val releaseKeystorePath = System.getenv("ANDROID_RELEASE_KEYSTORE_PATH")
+
 android {
     namespace = "de.loxitation.pht"
     compileSdk = 34
@@ -14,16 +21,32 @@ android {
         applicationId = "de.loxitation.pht"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        // Overridable by CI from the pushed git tag (e.g. v0.3.0 -> versionName "0.3.0"); falls
+        // back to a local dev default when built outside the release workflow.
+        versionCode = (System.getenv("ANDROID_VERSION_CODE")?.toIntOrNull()) ?: 1
+        versionName = System.getenv("ANDROID_VERSION_NAME") ?: "0.1.0-dev"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        if (releaseKeystorePath != null) {
+            create("release") {
+                storeFile = file(releaseKeystorePath)
+                storePassword = System.getenv("ANDROID_RELEASE_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_RELEASE_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_RELEASE_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            if (releaseKeystorePath != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 

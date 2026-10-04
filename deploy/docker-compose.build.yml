@@ -1,0 +1,11 @@
+# Override for local development: builds images from source instead of pulling pre-built ones
+# from ghcr.io. Use with:
+#   docker compose --env-file .env -f deploy/docker-compose.yml -f deploy/docker-compose.build.yml up -d --build
+services:
+  api:
+    build:
+      context: ../server
+
+  dashboard:
+    build:
+      context: ../dashboard

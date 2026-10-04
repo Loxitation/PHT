@@ -26,7 +26,7 @@ Lokale Health-Tracking-Loesung mit Android-App, selfhosted FastAPI-Backend und V
 - JWT-Login (Pinia Auth-Store) mit Access-/Refresh-Token-Rotation inkl. automatischem Token-Refresh bei 401 (Axios-Interceptor)
 - Blutdruck-Verlauf: Chart.js-Liniendiagramm (systolisch/diastolisch/puls) + tabellarische Ansicht, Daten ueber `GET /api/v1/measurements`
 - Route-Guards: ungeschuetzte Seiten (ausser Login) erfordern ein gueltiges Access-Token
-- Eigener Dashboard-Container: Multi-Stage-Dockerfile (Node-Build → nginx), `VITE_API_BASE_URL` als Build-Arg konfigurierbar
+- Eigener Dashboard-Container: Multi-Stage-Dockerfile (Node-Build → nginx), API-Basis-URL wird **zur Laufzeit** via `API_BASE_URL`-Umgebungsvariable gesetzt (kein Rebuild pro Deployment noetig, siehe `docker-entrypoint.sh`)
 - Server-seitig ergaenzt: CORS-Middleware (`CORS_ALLOWED_ORIGINS`) sowie `GET /api/v1/measurements` liefert jetzt systolic/diastolic/pulse direkt mit (vorher nur im `raw_payload` versteckt)
 
 Noch offen fuer spaetere Phasen:
@@ -87,39 +87,36 @@ Die generische Huellentabelle `measurements` bleibt absichtlich erweiterbar fuer
 
 ## Deployment via Portainer (empfohlener Weg)
 
-Der Stack ist Portainer-kompatibel: Standard-Compose-Syntax, benannte Volumes, sinnvolle Container-Namen. `docker-compose.yml` enthaelt bewusst **keine** `env_file`-Referenz mehr, damit er sich direkt ueber Portainers Stack-Environment-Variablen fuellen laesst, egal ob per Web-Editor oder Git-Repository-Deploy.
+Seit dem ersten Release (siehe [GitHub Releases](https://github.com/Loxitation/PHT/releases)) sind `api` und `dashboard` fertig gebaute Images auf GitHub Container Registry (`ghcr.io/loxitation/pht-api`, `ghcr.io/loxitation/pht-dashboard`, jeweils fuer linux/amd64 und linux/arm64). Portainer muss also nichts selbst bauen - nur Images pullen und starten.
 
-1. **Stack anlegen**: Portainer → *Stacks* → *Add stack*, Name z.B. `pht`.
-2. **Build-Methode** waehlen:
-   - **Repository** (empfohlen, da der `api`-Service ein Image aus [server/Dockerfile](/C:/Users/LeonB/Projects/PHT/server/Dockerfile) mit `context: ../server` baut): URL `https://github.com/Loxitation/PHT.git`, Compose-Pfad `deploy/docker-compose.yml`, Branch `main`. Da das Repo privat ist, unter *Authentication* Username + GitHub Personal Access Token hinterlegen. Portainer klont dabei das ganze Repo, wodurch der relative Build-Context `../server` aufgeloest werden kann.
-   - **Web editor**: Funktioniert nur, wenn du vorher ein fertiges `api`-Image in eine Registry gepusht hast und `build:` im Compose durch `image: <registry>/pht-api:<tag>` ersetzt, da beim Web-Editor kein Source-Tree fuer den Build vorhanden ist. Fuer Phase 1 daher **Repository** bevorzugen.
-3. **Environment variables** im Stack-Formular (Portainer legt daraus intern eine `.env`-aequivalente Konfiguration an) eintragen, siehe [.env.example](/C:/Users/LeonB/Projects/PHT/.env.example):
+1. Falls die Packages privat sind (Standard bei GITHUB_TOKEN-Pushes aus einem privaten Repo): einmalig auf GitHub unter Profil/Org -> Packages -> pht-api / pht-dashboard -> Package settings -> Change visibility -> Public umstellen. Die Images enthalten keine Secrets (alle Zugangsdaten kommen als Umgebungsvariablen zur Laufzeit rein). Alternativ in Portainer unter Registries eine GHCR-Registry mit einem GitHub-PAT (Scope read:packages) hinterlegen.
+2. Stack anlegen: Portainer -> Stacks -> Add stack, Name z.B. pht.
+3. Build-Methode: Web editor waehlen und den Inhalt von deploy/docker-compose.yml einfuegen (kein Repository-Checkout noetig, da nichts gebaut wird).
+4. Environment variables im Stack-Formular eintragen, siehe .env.example:
 
    | Variable | Beispiel |
    |---|---|
+   | `PHT_VERSION` | `latest` oder z.B. `0.1.0` zum Pinnen auf ein bestimmtes Release |
    | `POSTGRES_DB` | `pht` |
    | `POSTGRES_USER` | `pht` |
    | `POSTGRES_PASSWORD` | *sicheres Passwort* |
    | `POSTGRES_PORT` | `5432` |
    | `API_PORT` | `8000` |
+   | `DASHBOARD_PORT` | `8080` |
+   | `DASHBOARD_API_BASE_URL` | `https://pht.loxitation.de` (muss vom Browser aus erreichbar sein) |
    | `JWT_SECRET` | *langer Zufallswert* |
    | `JWT_ALGORITHM` | `HS256` |
    | `ACCESS_TOKEN_EXPIRE_MINUTES` | `15` |
    | `REFRESH_TOKEN_EXPIRE_DAYS` | `30` |
    | `LOGIN_RATE_LIMIT` | `5/minute` |
+   | `CORS_ALLOWED_ORIGINS` | `https://pht.loxitation.de,http://pht.leda:8080` |
    | `GOTIFY_ENABLED` | `false` |
    | `GOTIFY_URL` | *leer, kommt spaeter* |
    | `GOTIFY_TOKEN` | *leer, kommt spaeter* |
    | `LOG_LEVEL` | `INFO` |
 
-4. **Deploy the stack** klicken. Portainer baut das `api`-Image aus [server/Dockerfile](/C:/Users/LeonB/Projects/PHT/server/Dockerfile) und startet `pht-postgres` + `pht-api`.
-5. **Migration ausfuehren** ganz ohne SSH/CLI ueber die Portainer-GUI:
-   - *Containers* → `pht-api` → *Console* → *Connect* (Shell `/bin/sh` oder `/bin/bash`).
-   - Im geoeffneten Browser-Terminal:
-     ```sh
-     python -m alembic upgrade head
-     ```
-6. **Ersten Admin-User + Beurer-BM48-Device anlegen**, im selben Console-Fenster:
+5. Deploy the stack klicken. Portainer zieht die drei Images (timescale/timescaledb, pht-api, pht-dashboard) und startet den Stack. Die Datenbank-Migration laeuft automatisch beim Start des api-Containers (siehe server/docker-entrypoint.sh) - kein manueller Schritt noetig.
+6. Einmalig ersten Admin-User + Beurer-BM48-Device anlegen, ueber die Portainer-GUI (Containers -> pht-api -> Console -> Connect, Shell /bin/sh):
    ```sh
    python -m app.bootstrap --username admin --password "EIN-SICHERES-PASSWORT" --device-name "Beurer BM48" --device-type beurer_bm48
    ```
@@ -127,16 +124,53 @@ Der Stack ist Portainer-kompatibel: Standard-Compose-Syntax, benannte Volumes, s
    ```json
    {"username":"admin","device_id":"...","api_key":"..."}
    ```
-7. **Health-Check** von einem beliebigen LAN-Rechner (Reverse Proxy folgt spaeter):
+7. Health-Check:
    ```powershell
    curl.exe http://<server-ip>:8000/healthz
    ```
+8. Dashboard unter `http://<server-ip>:8080` (bzw. ueber Nginx Proxy Manager) aufrufen und mit dem Admin-User einloggen.
+
+Ein neues Release einspielen: `PHT_VERSION` auf die neue Versionsnummer setzen (oder bei `latest` einfach den Stack in Portainer neu pullen & redeployen) - Migrationen laufen automatisch beim Neustart des api-Containers mit.
 
 Die folgenden Beispiele nutzen `http://<server-ip>:8000`; ersetze das bei Bedarf durch `localhost`, falls du direkt auf dem Server testest.
 
-## Alternatives lokales Setup (Docker Compose CLI)
+## Releases erstellen (fuer Maintainer)
 
-Falls du statt Portainer die Compose-CLI direkt nutzen willst:
+Ein git-Tag im Format `v<version>` (z.B. `v0.1.0`) pushen - das Release-Workflow baut dann automatisch:
+
+- die signierte Android-APK (`pht-<version>.apk`) als GitHub-Release-Asset
+- `ghcr.io/loxitation/pht-api:<version>` + `:latest` (linux/amd64, linux/arm64)
+- `ghcr.io/loxitation/pht-dashboard:<version>` + `:latest` (linux/amd64, linux/arm64)
+
+Voraussetzung: die Repository-Secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` muessen unter Settings -> Secrets and variables -> Actions gesetzt sein (siehe naechster Abschnitt). Der Signing-Keystore wird bewusst nicht im Repo gespeichert.
+
+```powershell
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+## Android-Signing-Secrets einrichten (einmalig, fuer Maintainer)
+
+Die Android-App braucht fuer Release-Builds einen stabilen Signing-Key (sonst laesst sich eine neu installierte Version nicht als Update ueber eine bestehende installieren). Der Key wird nicht im Repo abgelegt, sondern als GitHub Actions Secret hinterlegt:
+
+1. GitHub -> Repo -> Settings -> Secrets and variables -> Actions -> New repository secret, vier Secrets anlegen:
+   - `ANDROID_KEYSTORE_BASE64`: Base64-kodierter Inhalt der .keystore-Datei
+   - `ANDROID_KEYSTORE_PASSWORD`
+   - `ANDROID_KEY_ALIAS`
+   - `ANDROID_KEY_PASSWORD`
+2. Falls noch kein Keystore existiert, lokal erzeugen (JDK muss installiert sein):
+   ```powershell
+   keytool -genkeypair -v -keystore pht-release.keystore -alias pht -keyalg RSA -keysize 2048 -validity 36500
+   ```
+   Danach die Datei base64-kodieren und den Inhalt als `ANDROID_KEYSTORE_BASE64` einfuegen:
+   ```powershell
+   [Convert]::ToBase64String([IO.File]::ReadAllBytes("pht-release.keystore")) | Set-Clipboard
+   ```
+3. Keystore-Datei danach sicher aufbewahren (z.B. Passwort-Manager) und nicht committen - ohne ihn koennen spaetere Releases nicht mehr mit derselben Signatur gebaut werden.
+
+## Alternatives lokales Setup (Docker Compose CLI, aus Quellcode gebaut)
+
+Falls du statt vorgefertigter Images lieber lokal aus dem Quellcode baust (z.B. fuer eigene Aenderungen):
 
 1. Beispiel-Umgebung kopieren:
 
@@ -146,19 +180,13 @@ Falls du statt Portainer die Compose-CLI direkt nutzen willst:
 
 2. In der neuen `.env` die Secrets anpassen, vor allem `POSTGRES_PASSWORD` und `JWT_SECRET`.
 
-3. Stack mit `--env-file` starten (die Compose-Datei liest Variablen jetzt nur noch aus der Shell-Umgebung bzw. `--env-file`, nicht mehr automatisch aus `../.env`):
+3. Stack mit dem Build-Override starten:
 
    ```powershell
-   docker compose --env-file .env -f deploy/docker-compose.yml up -d --build
+   docker compose --env-file .env -f deploy/docker-compose.yml -f deploy/docker-compose.build.yml up -d --build
    ```
 
-4. Migration ausfuehren:
-
-   ```powershell
-   docker compose -f deploy/docker-compose.yml exec api python -m alembic upgrade head
-   ```
-
-5. Ersten Admin-User und erstes Device anlegen:
+4. Migration laeuft automatisch beim Start des api-Containers. Ersten Admin-User und erstes Device anlegen:
 
    ```powershell
    docker compose -f deploy/docker-compose.yml exec api python -m app.bootstrap `
@@ -174,7 +202,7 @@ Falls du statt Portainer die Compose-CLI direkt nutzen willst:
    {"username":"admin","device_id":"...","api_key":"..."}
    ```
 
-6. Health-Check pruefen (vom Server selbst mit `localhost`, aus dem LAN mit der Server-IP):
+5. Health-Check pruefen (vom Server selbst mit `localhost`, aus dem LAN mit der Server-IP):
 
    ```powershell
    curl.exe http://localhost:8000/healthz
@@ -238,7 +266,13 @@ curl.exe http://localhost:8000/api/v1/measurements -H "Authorization: Bearer $TO
 - [server/app/api/v1/measurements.py](/C:/Users/LeonB/Projects/PHT/server/app/api/v1/measurements.py)
 - [server/alembic/versions/20260906_01_initial_schema.py](/C:/Users/LeonB/Projects/PHT/server/alembic/versions/20260906_01_initial_schema.py)
 
-## Android-App bauen und testen
+## Android-App installieren
+
+**Einfachster Weg**: Fertige APK von der [Releases-Seite](https://github.com/Loxitation/PHT/releases) herunterladen (`pht-<version>.apk`), auf das Android-Geraet uebertragen und oeffnen. Android fragt beim ersten Mal nach Erlaubnis fuer "App-Installation von dieser Quelle" - zustimmen und installieren. Die APK ist signiert (siehe "Android-Signing-Secrets" oben), sodass spaetere Updates ueber die bestehende Installation installiert werden koennen, ohne vorher deinstallieren zu muessen.
+
+## Android-App selbst bauen und testen
+
+Nur noetig, wenn du Aenderungen am Code vornehmen willst - fuer reine Nutzung reicht die fertige APK von oben.
 
 Voraussetzungen: JDK 17, Android SDK (mind. Platform 34 + Build-Tools 34.0.0). Android Studio (aktuelle Version) ist der einfachste Weg, beides zu bekommen; alternativ reichen JDK 17 + `sdkmanager` aus den Android-Commandline-Tools.
 
@@ -325,29 +359,15 @@ Voraussetzungen: JDK 17, Android SDK (mind. Platform 34 + Build-Tools 34.0.0). A
    npm run build
    ```
 
-## Dashboard per Docker/Portainer betreiben
+## Dashboard per Docker betreiben (ohne Portainer)
 
-Der `dashboard`-Service in [deploy/docker-compose.yml](/C:/Users/LeonB/Projects/PHT/deploy/docker-compose.yml) baut ein Multi-Stage-Image (Node-Build → nginx) und serviert die SPA auf Port `DASHBOARD_PORT` (Standard `8080`).
+Fuer den Portainer-Weg siehe den Abschnitt "Deployment via Portainer" oben. Der `dashboard`-Service in [deploy/docker-compose.yml](/C:/Users/LeonB/Projects/PHT/deploy/docker-compose.yml) nutzt das vorgefertigte `ghcr.io/loxitation/pht-dashboard`-Image und liest die API-Basis-URL **zur Laufzeit** aus der `API_BASE_URL`-Umgebungsvariable (siehe `docker-entrypoint.sh` im Dashboard-Image) - kein Rebuild pro Deployment noetig.
 
-Wichtig: `DASHBOARD_API_BASE_URL` wird **zur Build-Zeit** in das JS-Bundle eingebacken (Vite-Umgebungsvariablen sind kein Laufzeit-Konfig) und muss eine URL sein, die der **Browser des Nutzers** erreichen kann (z.B. `https://pht.loxitation.de` oder `http://pht.leda:8000`) - nicht der interne Docker-Service-Name `api`.
+```powershell
+docker compose --env-file .env -f deploy/docker-compose.yml up -d
+```
 
-1. In der Root-`.env` setzen (siehe [.env.example](/C:/Users/LeonB/Projects/PHT/.env.example)):
-
-   ```properties
-   DASHBOARD_PORT=8080
-   DASHBOARD_API_BASE_URL=https://pht.loxitation.de
-   CORS_ALLOWED_ORIGINS=https://pht.loxitation.de,http://pht.leda:8080
-   ```
-
-2. Stack (neu) bauen und starten:
-
-   ```powershell
-   docker compose --env-file .env -f deploy/docker-compose.yml up -d --build
-   ```
-
-   Oder via Portainer: Stack mit Repository-Methode wie in Phase 1 beschrieben, Environment-Variablen entsprechend ergaenzen.
-
-3. Dashboard unter `http://<server-ip>:8080` (bzw. ueber den Nginx Proxy Manager) aufrufen, mit dem in Phase 1 angelegten Admin-User einloggen.
+`DASHBOARD_API_BASE_URL` in der `.env` muss eine URL sein, die der **Browser des Nutzers** erreichen kann (z.B. `https://pht.loxitation.de` oder `http://pht.leda:8000`) - nicht der interne Docker-Service-Name `api`.
 
 ## Wichtige Dateien (Dashboard)
 

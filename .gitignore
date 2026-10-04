@@ -17,3 +17,6 @@ app/**/*.iml
 app/.idea/
 app/captures/
 app/**/.cxx/
+# Never commit signing material; CI decodes it from a GitHub Actions secret instead (see
+# .github/workflows/release.yml).
+app/keystore/

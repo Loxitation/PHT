@@ -18,8 +18,7 @@ services:
       retries: 10
 
   api:
-    build:
-      context: ../server
+    image: ghcr.io/loxitation/pht-api:${PHT_VERSION:-latest}
     container_name: pht-api
     restart: unless-stopped
     environment:
@@ -45,14 +44,13 @@ services:
       - "${API_PORT:-8000}:8000"
 
   dashboard:
-    build:
-      context: ../dashboard
-      args:
-        # Browser-facing URL of the api service; must be reachable from the user's browser,
-        # not just from inside the Docker network (so NOT "http://api:8000").
-        VITE_API_BASE_URL: ${DASHBOARD_API_BASE_URL:-http://localhost:8000}
+    image: ghcr.io/loxitation/pht-dashboard:${PHT_VERSION:-latest}
     container_name: pht-dashboard
     restart: unless-stopped
+    environment:
+      # Must be reachable from the user's browser, not just from inside the Docker network
+      # (so NOT "http://api:8000"). Read at container startup, not baked into the image.
+      API_BASE_URL: ${DASHBOARD_API_BASE_URL:-http://localhost:8000}
     depends_on:
       - api
     ports:

@@ -4,14 +4,16 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
-# VITE_API_BASE_URL is baked in at build time; override via --build-arg if the API is not
-# reachable at the default http://localhost:8000 from the browser's perspective.
-ARG VITE_API_BASE_URL=http://localhost:8000
-ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 RUN npm run build
 
 # Serve stage
 FROM nginx:1.27-alpine AS serve
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
 EXPOSE 80
+# API_BASE_URL is read at container startup (not build time), so this image is reusable across
+# deployments; see docker-entrypoint.sh.
+ENV API_BASE_URL=http://localhost:8000
+ENTRYPOINT ["/docker-entrypoint.sh"]
